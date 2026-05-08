@@ -1,3 +1,1 @@
-import { startBot } from "./bot";
-
-startBot();
+import "./bot";

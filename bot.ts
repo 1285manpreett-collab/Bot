@@ -1,15 +1,7 @@
-import TelegramBot from "node-telegram-bot-api";
 import http from "http";
 
-// KEEP-ALIVE SERVER
-
-http.createServer((req, res) => {
-  res.end("Bot Running");
-}).listen(process.env.PORT || 3000);
-
-// SETTINGS
-
-const INTERVAL_MS = 30000;
+const PORT =
+Number(process.env.PORT) || 3000;
 
 const TOKEN =
 "f4fd5751ea7bcf8cbd049b3345222e62adb19cb3cd0eee51bb09f2af98f7d76b7ece1e0e89dea30810d96c27ab2945b6";
@@ -20,189 +12,168 @@ const COOKIE =
 const OUTCOME_ID =
 "42a77638-c0f4-4afe-a078-daaf555911c2";
 
-const TARGET_ODDS = 1.0;
+let latestText =
+"Loading odds...";
 
-// BOT
+async function updateOdds() {
 
-export function startBot(): void {
+  try {
 
-  const telegramToken =
-  process.env["8696233281:AAFMq_ijIOg6IwmTltClqU3v2Nbr1lWHfy8"];
+    const response =
+    await fetch(
 
-  if (!telegramToken) {
+      "https://stake.com/_api/graphql",
 
-    console.log(
-      "Missing Telegram token"
-    );
+      {
 
-    return;
-  }
+        method: "POST",
 
-  const bot =
-  new TelegramBot(
-    telegramToken,
-    { polling: true }
-  );
+        headers: {
 
-  async function checkOdds(
-    chatId: number
-  ) {
+          "User-Agent":
+          "Mozilla/5.0",
 
-    try {
+          "Content-Type":
+          "application/json",
 
-      const response =
-      await fetch(
-        "https://stake.com/_api/graphql",
-        {
-          method: "POST",
+          "x-operation-type":
+          "query",
 
-          headers: {
+          "x-operation-name":
+          "SportBet_SportMarketOutcome",
 
-            "User-Agent":
-            "Mozilla/5.0",
+          "x-language":
+          "en",
 
-            "Content-Type":
-            "application/json",
+          "x-access-token":
+          TOKEN,
 
-            "x-operation-type":
-            "query",
+          "cookie":
+          COOKIE
+        },
 
-            "x-operation-name":
-            "SportBet_SportMarketOutcome",
+        body: JSON.stringify({
 
-            "x-language":
-            "en",
+          query: `
+            query SportBet_SportMarketOutcome(
+              $outcomeId: String!,
+              $provider: SportsbookOddsProviderEnum!
+            ) {
 
-            "x-access-token":
-            TOKEN,
-
-            "cookie":
-            COOKIE
-          },
-
-          body: JSON.stringify({
-
-            query: `
-              query SportBet_SportMarketOutcome(
-                $outcomeId: String!,
-                $provider: SportsbookOddsProviderEnum!
+              sportMarketOutcome(
+                outcomeId: $outcomeId,
+                provider: $provider
               ) {
 
-                sportMarketOutcome(
-                  outcomeId: $outcomeId,
-                  provider: $provider
-                ) {
+                name
+                odds
 
-                  name
-                  odds
+                market {
 
-                  market {
+                  fixture {
 
-                    fixture {
+                    data {
 
-                      data {
+                      ... on SportFixtureDataMatch {
 
-                        ... on SportFixtureDataMatch {
-
-                          competitors {
-                            name
-                          }
+                        competitors {
+                          name
                         }
                       }
                     }
                   }
                 }
               }
-            `,
-
-            variables: {
-
-              outcomeId: OUTCOME_ID,
-
-              provider: "betradar"
             }
-          })
-        }
-      );
+          `,
 
-      const json =
-      await response.json();
+          variables: {
 
-      if (
-        !json.data ||
-        !json.data.sportMarketOutcome
-      ) {
-        return;
+            outcomeId: OUTCOME_ID,
+
+            provider: "betradar"
+          }
+        })
       }
+    );
 
-      const outcome =
-      json.data.sportMarketOutcome;
+    const json =
+    await response.json();
 
-      const odds =
-      outcome.odds;
+    if (
+      !json.data ||
+      !json.data.sportMarketOutcome
+    ) {
 
-      const teams =
-      outcome.market.fixture
-      .data.competitors;
+      latestText =
+      "No data";
 
-      console.log(
-      "ODDS:",
-      odds);
+      return;
+    }
 
-      if (
-        odds >= TARGET_ODDS
-      ) {
+    const outcome =
+    json.data.sportMarketOutcome;
 
-        const msg =
+    const odds =
+    outcome.odds;
 
-`TARGET ODDS HIT!
+    const teams =
+    outcome.market.fixture
+    .data.competitors;
 
+    latestText = `
+
+TEAM 1:
 ${teams[0].name}
-vs
+
+TEAM 2:
 ${teams[1].name}
 
 PICK:
 ${outcome.name}
 
 ODDS:
-${odds}`;
+${odds}
 
-        await bot.sendMessage(
-          chatId,
-          msg
-        );
+UPDATED:
+${new Date().toLocaleTimeString()}
+`;
 
-        console.log(
-        "ALERT SENT");
-      }
+    console.log(latestText);
 
-    } catch (err: any) {
+  } catch (err: any) {
 
-      console.log(
-      err.message);
+    latestText =
+    "ERROR: " + err.message;
 
-    }
+    console.log(err.message);
   }
+}
 
-  bot.onText(/\/start/, (msg) => {
+// UPDATE EVERY 30 SEC
 
-    const chatId =
-    msg.chat.id;
+updateOdds();
 
-    bot.sendMessage(
-      chatId,
-      "Odds tracker started."
-    );
+setInterval(
+  updateOdds,
+  30000
+);
 
-    checkOdds(chatId);
+// WEBSITE
 
-    setInterval(() => {
+http.createServer((req, res) => {
 
-      checkOdds(chatId);
-
-    }, INTERVAL_MS);
+  res.writeHead(200, {
+    "Content-Type":
+    "text/plain"
   });
 
+  res.end(latestText);
+
+}).listen(PORT, () => {
+
   console.log(
-  "Telegram bot started");
-}
+  "Server running on port",
+  PORT);
+
+});
